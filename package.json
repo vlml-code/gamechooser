@@ -1,0 +1,10 @@
+{
+  "name": "gamechooser",
+  "version": "1.0.0",
+  "description": "Minimal HTTP server for Gamechooser",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "license": "MIT"
+}
