@@ -175,7 +175,21 @@ const getVoteValue = (type) => {
   return null;
 };
 
+const applyRandomVotes = (room) => {
+  if (!room.games.length) return;
+  const randomVotes = room.votes.filter((vote) => vote.value === 'random');
+  if (!randomVotes.length) return;
+
+  for (const vote of randomVotes) {
+    const randomIndex = Math.floor(Math.random() * room.games.length);
+    const randomGame = room.games[randomIndex];
+    vote.gameId = randomGame.id;
+    vote.value = 'positive';
+  }
+};
+
 const selectGame = (room) => {
+  applyRandomVotes(room);
   const voteState = room.getVoteState();
   const totalParticipants = room.participants.length;
   if (!room.games.length) return null;
@@ -448,6 +462,7 @@ const server = http.createServer((req, res) => {
           jsonResponse(res, 200, {
             selectedGame,
             selectedGameId: room.selectedGameId,
+            votes: room.getVoteState(),
           });
         })
         .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
