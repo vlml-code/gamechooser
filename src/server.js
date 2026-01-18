@@ -38,6 +38,7 @@ class Room {
     participants = [],
     votes = [],
     hostId = null,
+    hostSecret = null,
     selectedGameId = null,
   }) {
     this.id = id;
@@ -46,6 +47,7 @@ class Room {
     this.participants = participants;
     this.votes = votes;
     this.hostId = hostId;
+    this.hostSecret = hostSecret;
     this.selectedGameId = selectedGameId;
   }
 
@@ -84,6 +86,7 @@ class InMemoryRepository {
       id: this.generateId(),
       joinCode,
       games: games.map((game) => new Game(game)),
+      hostSecret: crypto.randomBytes(16).toString('hex'),
     });
     this.roomsById.set(room.id, room);
     this.roomsByJoinCode.set(room.joinCode, room);
@@ -314,6 +317,7 @@ const server = http.createServer((req, res) => {
           roomId: room.id,
           joinCode: room.joinCode,
           hostId: room.hostId,
+          hostSecret: room.hostSecret,
           games: room.getGameList(),
         });
       })
@@ -364,7 +368,6 @@ const server = http.createServer((req, res) => {
       jsonResponse(res, 200, {
         roomId: room.id,
         joinCode: room.joinCode,
-        hostId: room.hostId,
         games: room.getGameList(),
         participants: room.participants,
         votes: room.getVoteState(),
@@ -462,7 +465,7 @@ const server = http.createServer((req, res) => {
     if (action === 'start' && req.method === 'POST') {
       parseJsonBody(req)
         .then((body) => {
-          if (!body.hostId || body.hostId !== room.hostId) {
+          if (!body.hostSecret || body.hostSecret !== room.hostSecret) {
             jsonResponse(res, 403, { error: 'Only the host can start choosing' });
             return;
           }
