@@ -1,5 +1,7 @@
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const port = process.env.PORT || 3000;
 
@@ -206,9 +208,60 @@ const selectGame = (room) => {
   return topCandidates[randomIndex];
 };
 
+const publicDir = path.join(__dirname, '..', 'public');
+
+const getContentType = (filePath) => {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.html') return 'text/html';
+  if (extension === '.css') return 'text/css';
+  if (extension === '.js') return 'text/javascript';
+  if (extension === '.json') return 'application/json';
+  return 'application/octet-stream';
+};
+
+const serveStatic = (res, filePath, statusCode = 200) => {
+  fs.readFile(filePath, (error, data) => {
+    if (error) {
+      jsonResponse(res, 404, { error: 'Not Found' });
+      return;
+    }
+    res.writeHead(statusCode, {
+      'Content-Type': getContentType(filePath),
+      'Content-Length': data.length,
+    });
+    res.end(data);
+  });
+};
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const path = url.pathname;
+  const pathname = url.pathname;
+
+  if (req.method === 'GET') {
+    const publicFile =
+      pathname === '/styles.css' ||
+      pathname === '/app.js' ||
+      pathname.startsWith('/public/');
+    if (publicFile) {
+      const relativePath = pathname.startsWith('/public/')
+        ? pathname.replace('/public/', '')
+        : pathname.slice(1);
+      const filePath = path.join(publicDir, relativePath);
+      serveStatic(res, filePath);
+      return;
+    }
+
+    if (pathname === '/app' || pathname === '/room') {
+      serveStatic(res, path.join(publicDir, 'index.html'));
+      return;
+    }
+
+    const roomPageMatch = pathname.match(/^\/room\/([A-F0-9]+)$/i);
+    if (roomPageMatch) {
+      serveStatic(res, path.join(publicDir, 'index.html'));
+      return;
+    }
+  }
 
   if (req.url === '/' && req.method === 'GET') {
     const payload = {
@@ -220,7 +273,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (path === '/rooms' && req.method === 'POST') {
+  if (pathname === '/rooms' && req.method === 'POST') {
     parseJsonBody(req)
       .then((body) => {
         const games = Array.isArray(body.games) ? body.games : [];
@@ -241,7 +294,35 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const roomMatch = path.match(/^\/rooms\/([A-F0-9]+)(?:\/(.*))?$/i);
+  if (pathname === '/rooms/join' && req.method === 'POST') {
+    parseJsonBody(req)
+      .then((body) => {
+        const joinCode = String(body.joinCode || '').toUpperCase();
+        if (!joinCode) {
+          jsonResponse(res, 400, { error: 'Join code is required' });
+          return;
+        }
+        const room = repository.getRoomByJoinCode(joinCode);
+        if (!room) {
+          jsonResponse(res, 404, { error: 'Room not found' });
+          return;
+        }
+        const name = body.name || 'Player';
+        const participant = repository.addParticipant(room.id, {
+          id: repository.generateId(),
+          name,
+        });
+        jsonResponse(res, 200, {
+          roomId: room.id,
+          joinCode: room.joinCode,
+          participant,
+        });
+      })
+      .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
+    return;
+  }
+
+  const roomMatch = pathname.match(/^\/rooms\/([A-F0-9]+)(?:\/(.*))?$/i);
   if (roomMatch) {
     const joinCode = roomMatch[1].toUpperCase();
     const action = roomMatch[2] || '';
@@ -261,6 +342,15 @@ const server = http.createServer((req, res) => {
         participants: room.participants,
         votes: room.getVoteState(),
         selectedGameId: room.selectedGameId,
+      });
+      return;
+    }
+
+    if (action === 'games' && req.method === 'GET') {
+      jsonResponse(res, 200, {
+        roomId: room.id,
+        joinCode: room.joinCode,
+        games: room.getGameList(),
       });
       return;
     }
