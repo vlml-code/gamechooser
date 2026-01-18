@@ -6,9 +6,13 @@ const joinRoomForm = document.getElementById('join-room-form');
 const addGameForm = document.getElementById('add-game-form');
 const gameList = document.getElementById('game-list');
 const refreshButton = document.getElementById('refresh-button');
+const startButton = document.getElementById('start-button');
+const selectedGameWrap = document.getElementById('selected-game');
+const selectedGameTitle = document.getElementById('selected-game-title');
 
 let activeRoom = null;
 let participantId = null;
+let hostSecret = null;
 
 const updateStatus = (text) => {
   statusNode.textContent = text;
@@ -45,9 +49,19 @@ const requestJson = async (path, options = {}) => {
   return payload;
 };
 
-const setRoomState = ({ joinCode, roomId, participant }) => {
+const updateHostControls = () => {
+  if (hostSecret) {
+    startButton.classList.remove('hidden');
+  } else {
+    startButton.classList.add('hidden');
+  }
+};
+
+const setRoomState = ({ joinCode, roomId, participant, hostSecret: secret }) => {
   activeRoom = { joinCode, roomId };
   participantId = participant?.id || participantId;
+  hostSecret = secret || null;
+  updateHostControls();
   updateStatus(`Connected to room ${joinCode}`);
   showInvite(joinCode);
   addGameForm.classList.remove('hidden');
@@ -56,6 +70,14 @@ const setRoomState = ({ joinCode, roomId, participant }) => {
 
 const renderGames = (room) => {
   gameList.innerHTML = '';
+  const selectedGame = room.games.find((game) => game.id === room.selectedGameId);
+  if (selectedGame) {
+    selectedGameTitle.textContent = selectedGame.title;
+    selectedGameWrap.classList.remove('hidden');
+  } else {
+    selectedGameTitle.textContent = '';
+    selectedGameWrap.classList.add('hidden');
+  }
   if (!room.games.length) {
     gameList.innerHTML = '<p class="empty">No games yet.</p>';
     return;
@@ -133,6 +155,7 @@ createRoomForm.addEventListener('submit', async (event) => {
       joinCode: room.joinCode,
       roomId: room.roomId,
       participant: { id: room.hostId },
+      hostSecret: room.hostSecret,
     });
   } catch (error) {
     updateStatus(error.message);
@@ -153,7 +176,11 @@ joinRoomForm.addEventListener('submit', async (event) => {
       method: 'POST',
       body: JSON.stringify({ joinCode, name }),
     });
-    setRoomState({ joinCode: room.joinCode, roomId: room.roomId, participant: room.participant });
+    setRoomState({
+      joinCode: room.joinCode,
+      roomId: room.roomId,
+      participant: room.participant,
+    });
   } catch (error) {
     updateStatus(error.message);
   }
@@ -178,6 +205,21 @@ addGameForm.addEventListener('submit', async (event) => {
 });
 
 refreshButton.addEventListener('click', refreshRoom);
+startButton.addEventListener('click', async () => {
+  if (!activeRoom || !hostSecret) {
+    updateStatus('Only the host can start choosing.');
+    return;
+  }
+  try {
+    await requestJson(`/rooms/${activeRoom.joinCode}/start`, {
+      method: 'POST',
+      body: JSON.stringify({ hostSecret }),
+    });
+    await refreshRoom();
+  } catch (error) {
+    updateStatus(error.message);
+  }
+});
 
 const boot = async () => {
   const pathParts = window.location.pathname.split('/');
