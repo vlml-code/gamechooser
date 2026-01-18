@@ -4,6 +4,13 @@ const fs = require('fs');
 const path = require('path');
 
 const port = process.env.PORT || 3000;
+const storagePath =
+  process.env.ROOM_STORAGE_PATH || path.join(__dirname, '..', 'data', 'rooms.json');
+const roomTtlHours = Number.parseFloat(process.env.ROOM_TTL_HOURS || '6');
+const cleanupIntervalMinutes = Number.parseInt(
+  process.env.ROOM_CLEANUP_INTERVAL_MINUTES || '15',
+  10
+);
 
 class Game {
   constructor({ id, title, description = '' }) {
@@ -40,6 +47,7 @@ class Room {
     hostId = null,
     hostSecret = null,
     selectedGameId = null,
+    lastActiveAt = new Date().toISOString(),
   }) {
     this.id = id;
     this.joinCode = joinCode;
@@ -49,6 +57,7 @@ class Room {
     this.hostId = hostId;
     this.hostSecret = hostSecret;
     this.selectedGameId = selectedGameId;
+    this.lastActiveAt = lastActiveAt;
   }
 
   getGameList() {
@@ -138,7 +147,174 @@ class InMemoryRepository {
   }
 }
 
-const repository = new InMemoryRepository();
+class JsonFileRepository {
+  constructor({
+    storagePath: storageFile,
+    ttlHours,
+    cleanupIntervalMs,
+    nowFn = () => Date.now(),
+  }) {
+    this.roomsById = new Map();
+    this.roomsByJoinCode = new Map();
+    this.storagePath = storageFile;
+    this.ttlMs = ttlHours * 60 * 60 * 1000;
+    this.cleanupIntervalMs = cleanupIntervalMs;
+    this.nowFn = nowFn;
+    this.loadFromDisk();
+    this.purgeExpiredRooms();
+    this.startCleanupTimer();
+  }
+
+  startCleanupTimer() {
+    if (!Number.isFinite(this.cleanupIntervalMs) || this.cleanupIntervalMs <= 0) {
+      return;
+    }
+    this.cleanupTimer = setInterval(() => {
+      this.purgeExpiredRooms();
+    }, this.cleanupIntervalMs);
+    if (this.cleanupTimer.unref) {
+      this.cleanupTimer.unref();
+    }
+  }
+
+  loadFromDisk() {
+    if (!fs.existsSync(this.storagePath)) {
+      return;
+    }
+    const raw = fs.readFileSync(this.storagePath, 'utf8');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    const rooms = Array.isArray(data.rooms) ? data.rooms : [];
+    rooms.forEach((roomData) => {
+      const room = new Room({
+        ...roomData,
+        games: (roomData.games || []).map((game) => new Game(game)),
+        participants: (roomData.participants || []).map(
+          (participant) => new Participant(participant)
+        ),
+        votes: (roomData.votes || []).map((vote) => new Vote(vote)),
+      });
+      this.roomsById.set(room.id, room);
+      this.roomsByJoinCode.set(room.joinCode, room);
+    });
+  }
+
+  saveToDisk() {
+    const directory = path.dirname(this.storagePath);
+    if (!fs.existsSync(directory)) {
+      fs.mkdirSync(directory, { recursive: true });
+    }
+    const rooms = Array.from(this.roomsById.values()).map((room) => ({
+      id: room.id,
+      joinCode: room.joinCode,
+      games: room.games,
+      participants: room.participants,
+      votes: room.votes,
+      hostId: room.hostId,
+      hostSecret: room.hostSecret,
+      selectedGameId: room.selectedGameId,
+      lastActiveAt: room.lastActiveAt,
+    }));
+    fs.writeFileSync(this.storagePath, JSON.stringify({ rooms }, null, 2), 'utf8');
+  }
+
+  touchRoom(room) {
+    room.lastActiveAt = new Date(this.nowFn()).toISOString();
+  }
+
+  createRoom({ games = [] } = {}) {
+    const joinCode = this.generateUniqueJoinCode();
+    const room = new Room({
+      id: this.generateId(),
+      joinCode,
+      games: games.map((game) => new Game(game)),
+      hostSecret: crypto.randomBytes(16).toString('hex'),
+      lastActiveAt: new Date(this.nowFn()).toISOString(),
+    });
+    this.roomsById.set(room.id, room);
+    this.roomsByJoinCode.set(room.joinCode, room);
+    this.saveToDisk();
+    return room;
+  }
+
+  getRoomByJoinCode(joinCode) {
+    const room = this.roomsByJoinCode.get(joinCode) || null;
+    if (room) {
+      this.touchRoom(room);
+      this.saveToDisk();
+    }
+    return room;
+  }
+
+  addParticipant(roomId, participant) {
+    const room = this.roomsById.get(roomId);
+    if (!room) return null;
+    const newParticipant = new Participant(participant);
+    room.participants.push(newParticipant);
+    this.touchRoom(room);
+    this.saveToDisk();
+    return newParticipant;
+  }
+
+  addGame(roomId, game) {
+    const room = this.roomsById.get(roomId);
+    if (!room) return null;
+    const newGame = new Game(game);
+    room.games.push(newGame);
+    this.touchRoom(room);
+    this.saveToDisk();
+    return newGame;
+  }
+
+  addVote(roomId, vote) {
+    const room = this.roomsById.get(roomId);
+    if (!room) return null;
+    const newVote = new Vote({ ...vote, roomId });
+    room.votes.push(newVote);
+    this.touchRoom(room);
+    this.saveToDisk();
+    return newVote;
+  }
+
+  purgeExpiredRooms() {
+    if (!Number.isFinite(this.ttlMs) || this.ttlMs <= 0) return;
+    const cutoff = this.nowFn() - this.ttlMs;
+    let removedAny = false;
+    for (const room of this.roomsById.values()) {
+      const lastActive = Date.parse(room.lastActiveAt);
+      if (!Number.isFinite(lastActive) || lastActive < cutoff) {
+        this.roomsById.delete(room.id);
+        this.roomsByJoinCode.delete(room.joinCode);
+        removedAny = true;
+      }
+    }
+    if (removedAny) {
+      this.saveToDisk();
+    }
+  }
+
+  generateUniqueJoinCode() {
+    let joinCode = this.generateJoinCode();
+    while (this.roomsByJoinCode.has(joinCode)) {
+      joinCode = this.generateJoinCode();
+    }
+    return joinCode;
+  }
+
+  generateJoinCode() {
+    return crypto.randomBytes(3).toString('hex').toUpperCase();
+  }
+
+  generateId() {
+    return crypto.randomUUID();
+  }
+}
+
+const repository = new JsonFileRepository({
+  storagePath,
+  ttlHours: roomTtlHours,
+  cleanupIntervalMs: cleanupIntervalMinutes * 60 * 1000,
+});
 
 const jsonResponse = (res, statusCode, payload) => {
   const body = JSON.stringify(payload);
