@@ -197,7 +197,9 @@ const selectGame = (room) => {
   let majorityWinner = null;
   for (const game of room.games) {
     const positiveVotes = voteState[game.id]?.positive || 0;
-    if (positiveVotes > totalParticipants / 2) {
+    const negativeVotes = voteState[game.id]?.negative || 0;
+    const netScore = positiveVotes - negativeVotes;
+    if (positiveVotes > totalParticipants / 2 && netScore > 0) {
       majorityWinner = game;
       break;
     }
@@ -205,15 +207,26 @@ const selectGame = (room) => {
 
   if (majorityWinner) return majorityWinner;
 
-  let topScore = -1;
+  let topScore = -Infinity;
+  let topPositiveVotes = -Infinity;
   let topCandidates = [];
   for (const game of room.games) {
     const positiveVotes = voteState[game.id]?.positive || 0;
-    if (positiveVotes > topScore) {
-      topScore = positiveVotes;
+    const negativeVotes = voteState[game.id]?.negative || 0;
+    const netScore = positiveVotes - negativeVotes;
+    if (netScore > topScore) {
+      topScore = netScore;
+      topPositiveVotes = positiveVotes;
       topCandidates = [game];
-    } else if (positiveVotes === topScore) {
-      topCandidates.push(game);
+      continue;
+    }
+    if (netScore === topScore) {
+      if (positiveVotes > topPositiveVotes) {
+        topPositiveVotes = positiveVotes;
+        topCandidates = [game];
+      } else if (positiveVotes === topPositiveVotes) {
+        topCandidates.push(game);
+      }
     }
   }
 
