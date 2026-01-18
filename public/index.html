@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gamechooser</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Gamechooser</h1>
+        <p class="subtitle">Create a room, share the invite link, and vote on what to play.</p>
+      </header>
+
+      <section class="card" id="status-card">
+        <h2>Room status</h2>
+        <div id="status">Not connected</div>
+        <div id="invite" class="invite hidden">
+          Invite link: <a id="invite-link" href="#"></a>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h2>Create a room</h2>
+          <form id="create-room-form">
+            <label>
+              Host name
+              <input type="text" name="hostName" placeholder="Host" />
+            </label>
+            <label>
+              Games (one per line)
+              <textarea name="games" rows="5" placeholder="Game title"></textarea>
+            </label>
+            <button type="submit">Create room</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>Join a room</h2>
+          <form id="join-room-form">
+            <label>
+              Room code
+              <input type="text" name="joinCode" placeholder="AB12CD" />
+            </label>
+            <label>
+              Display name
+              <input type="text" name="name" placeholder="Player name" />
+            </label>
+            <button type="submit">Join room</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="card" id="game-section">
+        <div class="game-header">
+          <h2>Games</h2>
+          <button id="refresh-button" type="button">Refresh</button>
+        </div>
+        <div id="game-list" class="game-list"></div>
+        <form id="add-game-form" class="hidden">
+          <label>
+            Add a game
+            <input type="text" name="title" placeholder="New game" />
+          </label>
+          <button type="submit">Add game</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

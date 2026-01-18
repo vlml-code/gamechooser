@@ -1,0 +1,135 @@
+:root {
+  color-scheme: light dark;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+header h1 {
+  margin-bottom: 0.25rem;
+}
+
+.subtitle {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.card {
+  background: #111827;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  border: 1px solid #1f2937;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+}
+
+.grid {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+input,
+textarea {
+  padding: 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid #334155;
+  background: #0b1220;
+  color: inherit;
+}
+
+button {
+  padding: 0.65rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid #38bdf8;
+  background: #0ea5e9;
+  color: #0b1220;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.05);
+}
+
+.hidden {
+  display: none;
+}
+
+.invite {
+  margin-top: 0.75rem;
+}
+
+.invite a {
+  color: #38bdf8;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.game-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.game-card {
+  background: #0b1220;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #1f2937;
+}
+
+.game-title {
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.vote-tally {
+  color: #94a3b8;
+  margin-bottom: 0.75rem;
+}
+
+.vote-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.vote-button {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #334155;
+}
+
+.vote-button:hover {
+  border-color: #38bdf8;
+}
+
+.empty {
+  color: #94a3b8;
+}
