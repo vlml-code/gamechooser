@@ -55,7 +55,14 @@
       <section class="card" id="game-section">
         <div class="game-header">
           <h2>Games</h2>
-          <button id="refresh-button" type="button">Refresh</button>
+          <div class="game-actions">
+            <button id="start-button" class="hidden" type="button">Start choosing</button>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+        </div>
+        <div id="selected-game" class="selected-game hidden">
+          <h3>Selected game</h3>
+          <p id="selected-game-title"></p>
         </div>
         <div id="game-list" class="game-list"></div>
         <form id="add-game-form" class="hidden">
