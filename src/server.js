@@ -29,12 +29,22 @@ class Vote {
 }
 
 class Room {
-  constructor({ id, joinCode, games = [], participants = [], votes = [] }) {
+  constructor({
+    id,
+    joinCode,
+    games = [],
+    participants = [],
+    votes = [],
+    hostId = null,
+    selectedGameId = null,
+  }) {
     this.id = id;
     this.joinCode = joinCode;
     this.games = games;
     this.participants = participants;
     this.votes = votes;
+    this.hostId = hostId;
+    this.selectedGameId = selectedGameId;
   }
 
   getGameList() {
@@ -125,25 +135,237 @@ class InMemoryRepository {
 
 const repository = new InMemoryRepository();
 
+const jsonResponse = (res, statusCode, payload) => {
+  const body = JSON.stringify(payload);
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+  });
+  res.end(body);
+};
+
+const parseJsonBody = (req) =>
+  new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      if (!data) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(data));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+
+const getVoteCategory = (value) => (value === 'negative' ? 'negative' : 'positive');
+
+const getVoteValue = (type) => {
+  if (type === 'up') return 'positive';
+  if (type === 'down') return 'negative';
+  if (type === 'random_up') return 'random';
+  return null;
+};
+
+const selectGame = (room) => {
+  const voteState = room.getVoteState();
+  const totalParticipants = room.participants.length;
+  if (!room.games.length) return null;
+
+  let majorityWinner = null;
+  for (const game of room.games) {
+    const positiveVotes = voteState[game.id]?.positive || 0;
+    if (positiveVotes > totalParticipants / 2) {
+      majorityWinner = game;
+      break;
+    }
+  }
+
+  if (majorityWinner) return majorityWinner;
+
+  let topScore = -1;
+  let topCandidates = [];
+  for (const game of room.games) {
+    const positiveVotes = voteState[game.id]?.positive || 0;
+    if (positiveVotes > topScore) {
+      topScore = positiveVotes;
+      topCandidates = [game];
+    } else if (positiveVotes === topScore) {
+      topCandidates.push(game);
+    }
+  }
+
+  if (!topCandidates.length) return null;
+  const randomIndex = Math.floor(Math.random() * topCandidates.length);
+  return topCandidates[randomIndex];
+};
+
 const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const path = url.pathname;
+
   if (req.url === '/' && req.method === 'GET') {
-    const payload = JSON.stringify({
+    const payload = {
       message: 'Gamechooser API is running',
       status: 'ok',
-    });
+    };
 
-    res.writeHead(200, {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload),
-    });
-    res.end(payload);
+    jsonResponse(res, 200, payload);
     return;
   }
 
-  res.writeHead(404, {
-    'Content-Type': 'application/json',
-  });
-  res.end(JSON.stringify({ error: 'Not Found' }));
+  if (path === '/rooms' && req.method === 'POST') {
+    parseJsonBody(req)
+      .then((body) => {
+        const games = Array.isArray(body.games) ? body.games : [];
+        const room = repository.createRoom({ games });
+        const hostParticipant = repository.addParticipant(room.id, {
+          id: repository.generateId(),
+          name: body.hostName || 'Host',
+        });
+        room.hostId = hostParticipant.id;
+        jsonResponse(res, 201, {
+          roomId: room.id,
+          joinCode: room.joinCode,
+          hostId: room.hostId,
+          games: room.getGameList(),
+        });
+      })
+      .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
+    return;
+  }
+
+  const roomMatch = path.match(/^\/rooms\/([A-F0-9]+)(?:\/(.*))?$/i);
+  if (roomMatch) {
+    const joinCode = roomMatch[1].toUpperCase();
+    const action = roomMatch[2] || '';
+    const room = repository.getRoomByJoinCode(joinCode);
+
+    if (!room) {
+      jsonResponse(res, 404, { error: 'Room not found' });
+      return;
+    }
+
+    if (action === '' && req.method === 'GET') {
+      jsonResponse(res, 200, {
+        roomId: room.id,
+        joinCode: room.joinCode,
+        hostId: room.hostId,
+        games: room.getGameList(),
+        participants: room.participants,
+        votes: room.getVoteState(),
+        selectedGameId: room.selectedGameId,
+      });
+      return;
+    }
+
+    if (action === 'participants' && req.method === 'POST') {
+      parseJsonBody(req)
+        .then((body) => {
+          if (!body.name) {
+            jsonResponse(res, 400, { error: 'Participant name is required' });
+            return;
+          }
+          const participant = repository.addParticipant(room.id, {
+            id: repository.generateId(),
+            name: body.name,
+          });
+          jsonResponse(res, 201, participant);
+        })
+        .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
+      return;
+    }
+
+    if (action === 'games' && req.method === 'POST') {
+      parseJsonBody(req)
+        .then((body) => {
+          if (!body.title) {
+            jsonResponse(res, 400, { error: 'Game title is required' });
+            return;
+          }
+          const game = repository.addGame(room.id, {
+            id: repository.generateId(),
+            title: body.title,
+            description: body.description || '',
+          });
+          jsonResponse(res, 201, game);
+        })
+        .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
+      return;
+    }
+
+    if (action === 'vote' && req.method === 'POST') {
+      parseJsonBody(req)
+        .then((body) => {
+          const voteValue = getVoteValue(body.type);
+          if (!body.participantId || !body.gameId || !voteValue) {
+            jsonResponse(res, 400, {
+              error: 'participantId, gameId, and vote type are required',
+            });
+            return;
+          }
+
+          const participant = room.participants.find(
+            (item) => item.id === body.participantId
+          );
+          const game = room.games.find((item) => item.id === body.gameId);
+          if (!participant || !game) {
+            jsonResponse(res, 404, { error: 'Participant or game not found' });
+            return;
+          }
+
+          const category = getVoteCategory(voteValue);
+          room.votes = room.votes.filter((vote) => {
+            if (vote.participantId !== body.participantId) return true;
+            return getVoteCategory(vote.value) !== category;
+          });
+
+          const vote = repository.addVote(room.id, {
+            id: repository.generateId(),
+            participantId: body.participantId,
+            gameId: body.gameId,
+            value: voteValue,
+          });
+
+          jsonResponse(res, 201, {
+            vote,
+            votes: room.getVoteState(),
+          });
+        })
+        .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
+      return;
+    }
+
+    if (action === 'start' && req.method === 'POST') {
+      parseJsonBody(req)
+        .then((body) => {
+          if (!body.hostId || body.hostId !== room.hostId) {
+            jsonResponse(res, 403, { error: 'Only the host can start choosing' });
+            return;
+          }
+          const selectedGame = selectGame(room);
+          if (!selectedGame) {
+            jsonResponse(res, 400, { error: 'No games available to select' });
+            return;
+          }
+          room.selectedGameId = selectedGame.id;
+          jsonResponse(res, 200, {
+            selectedGame,
+            selectedGameId: room.selectedGameId,
+          });
+        })
+        .catch(() => jsonResponse(res, 400, { error: 'Invalid JSON body' }));
+      return;
+    }
+  }
+
+  jsonResponse(res, 404, { error: 'Not Found' });
 });
 
 server.listen(port, () => {
